@@ -12,7 +12,7 @@ Three vertical phases deliver a fully operational remote knowledge base. Phase 1
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Core MCP Server** - FastAPI server with SSE transport, bearer auth, Cloudflare Tunnel, and all navigation/retrieval/ingestion/maintenance tools
+- [ ] **Phase 1: Core MCP Server** - FastAPI server with streamable-HTTP transport, OAuth 2.0 PKCE + bearer auth, Cloudflare Tunnel, and all 15 navigation/retrieval/ingestion/maintenance tools
 - [ ] **Phase 2: Media Ingestion + Full-Text Search** - URL classification, media ingestion pipeline (webpage/video/PDF), SQLite FTS5 search, and vault health check
 - [ ] **Phase 3: Semantic Search + Token Efficiency** - ChromaDB vector search, local sentence-transformer embeddings, summary cache, and unified watchdog sync
 
@@ -27,8 +27,16 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Claude can create a new note with auto-generated frontmatter, append text to it, and read it back in the same session
   3. Claude can search vault markdown files by keyword via search_full_text() and receive ranked snippets
   4. After every create_note() call, update_index() adds the entry to wiki/index.md and append_log() records the operation in wiki/log.md
-  5. Server process survives a restart (PM2 auto-restarts it) and the CLOUD.md rules are injected as the MCP system prompt
-**Plans**: TBD
+  5. Server process survives a restart (PM2 auto-restarts it) and the CLAUDE.md rules are injected as the MCP system prompt
+**Plans**: 7 plans
+Plans:
+- [ ] 01-01-PLAN.md — Project scaffold: requirements.txt, .env.example, .gitignore, init_vault.py, CLAUDE.md, setup.sh, ecosystem.config.js, README.md (+ package legitimacy checkpoint)
+- [ ] 01-02-PLAN.md — Test harness: pyproject.toml pytest config + tests/conftest.py with tmp_vault fixture + smoke test
+- [ ] 01-03-PLAN.md — Server bootstrap: server.py with FastMCP + streamable-HTTP + BearerAuthMiddleware + OAuth 2.0 PKCE endpoints + path/error helpers + auth/oauth/infra tests
+- [ ] 01-04-PLAN.md — Navigation tools: list_folders, list_notes, get_note_metadata, get_index + tests
+- [ ] 01-05-PLAN.md — Retrieval tools: search_full_text (naive scan), get_note_summary, read_note, read_note_section + tests
+- [ ] 01-06-PLAN.md — Ingestion tools: create_note, append_to_note, prepend_to_note, insert_under_heading, update_frontmatter + tests
+- [ ] 01-07-PLAN.md — Maintenance tools: update_index (upsert), append_log + tests + end-to-end deployment verification checkpoint
 
 ### Phase 2: Media Ingestion + Full-Text Search
 **Goal**: Any URL — webpage, YouTube video, podcast, or PDF — can be ingested into the vault as clean markdown, and all vault content is searchable via a ranked SQLite FTS5 index
@@ -61,6 +69,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core MCP Server | 0/TBD | Not started | - |
+| 1. Core MCP Server | 0/7 | Not started | - |
 | 2. Media Ingestion + Full-Text Search | 0/TBD | Not started | - |
 | 3. Semantic Search + Token Efficiency | 0/TBD | Not started | - |
