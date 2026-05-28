@@ -1,0 +1,21 @@
+# Phase 1 — Core MCP Server dependencies
+# Install inside a virtualenv: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+# Server
+fastapi==0.111.0
+uvicorn[standard]==0.30.0
+python-dotenv==1.2.2
+pydantic==2.7.0
+
+# MCP SDK — official Anthropic MCP Python SDK (NOT fastapi-mcp from tadata)
+# Import as: from mcp.server.fastmcp import FastMCP
+mcp
+
+# File handling
+python-frontmatter==1.1.0
+watchdog==4.0.0
+
+# Testing
+pytest
+pytest-asyncio
+httpx

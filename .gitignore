@@ -1,0 +1,38 @@
+# Environment — never commit real secrets
+.env
+
+# Python virtualenv
+.venv/
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Cloudflare Tunnel credentials (sensitive — stored outside repo by default but gitignored as extra safety)
+~/.cloudflared/*.json
+
+# Editor directories
+.vscode/
+.idea/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# SQLite databases (Phase 2 search index — rebuild on clone)
+*.db
+
+# ChromaDB vector store (Phase 3 — rebuild on clone)
+chroma_db/
