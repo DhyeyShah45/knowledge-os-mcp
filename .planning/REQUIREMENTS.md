@@ -1,13 +1,14 @@
 # Requirements: knowledge-os-mcp
 
 **Defined:** 2026-05-28
+**Last updated:** 2026-05-29 (INFRA-01 transport corrected to streamable-HTTP per checker feedback)
 **Core Value:** Claude on any device can query and modify a single persistent Obsidian vault over a secure remote connection — accumulating knowledge that compounds across sessions.
 
 ## v1 Requirements
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: FastAPI server serves MCP tools over SSE transport on port 8000
+- [ ] **INFRA-01**: FastAPI server serves MCP tools over streamable-HTTP transport on port 8000
 - [ ] **INFRA-02**: All endpoints require bearer token authentication via VAULT_SECRET env var
 - [ ] **INFRA-03**: Cloudflare Tunnel exposes the server at a persistent custom subdomain
 - [ ] **INFRA-04**: Server process is managed via PM2 with auto-restart on failure
@@ -132,4 +133,4 @@
 
 ---
 *Requirements defined: 2026-05-28*
-*Last updated: 2026-05-28 after initial definition*
+*Last updated: 2026-05-29 — INFRA-01 transport corrected from SSE to streamable-HTTP per CONTEXT.md D-05.*

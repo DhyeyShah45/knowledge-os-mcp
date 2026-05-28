@@ -38,6 +38,19 @@ Plans:
 - [ ] 01-06-PLAN.md — Ingestion tools: create_note, append_to_note, prepend_to_note, insert_under_heading, update_frontmatter + tests
 - [ ] 01-07-PLAN.md — Maintenance tools: update_index (upsert), append_log + tests + end-to-end deployment verification checkpoint
 
+**Wave dependency notes:**
+- Wave 1: Plans 01-01 + 01-02 — run in parallel (disjoint files)
+- Wave 2 *(blocked on Wave 1 completion)*: Plan 01-03
+- Wave 3 *(blocked on Wave 2 completion)*: Plan 01-04
+- Wave 4 *(blocked on Wave 3 completion)*: Plan 01-05
+- Wave 5 *(blocked on Wave 4 completion)*: Plan 01-06
+- Wave 6 *(blocked on Wave 5 completion)*: Plan 01-07
+
+**Cross-cutting constraints:**
+- `safe_vault_path()` must exist in server.py before tool plans (01-04 through 01-07) run
+- All tool errors return `{"error": true, "message": "...", "code": "..."}` — never raise HTTPException (D-08)
+- OAuth bypass paths constant (`OAUTH_BYPASS_PATHS`) is single source of truth for /authorize and /token exclusions
+
 ### Phase 2: Media Ingestion + Full-Text Search
 **Goal**: Any URL — webpage, YouTube video, podcast, or PDF — can be ingested into the vault as clean markdown, and all vault content is searchable via a ranked SQLite FTS5 index
 **Depends on**: Phase 1

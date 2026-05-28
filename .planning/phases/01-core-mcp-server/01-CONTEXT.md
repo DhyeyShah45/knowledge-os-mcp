@@ -1,12 +1,13 @@
 # Phase 1: Core MCP Server - Context
 
 **Gathered:** 2026-05-28
+**Last updated:** 2026-05-29 (D-05 corrected, D-16 added per checker feedback)
 **Status:** Ready for planning
 
 <domain>
 ## Phase Boundary
 
-Deliver a running FastAPI MCP server with SSE transport and bearer auth, a Cloudflare Tunnel exposing it at a persistent HTTPS subdomain, and the complete set of navigation / retrieval / ingestion / maintenance tools — so Claude on any device can read and write a fresh Obsidian vault over a secure connection.
+Deliver a running FastAPI MCP server with streamable-HTTP transport and bearer auth (plus OAuth 2.0 PKCE wrapper for claude.ai mobile), a Cloudflare Tunnel exposing it at a persistent HTTPS subdomain, and the complete set of navigation / retrieval / ingestion / maintenance tools — so Claude on any device can read and write a fresh Obsidian vault over a secure connection.
 
 Naive keyword search (file scan) is in scope. FTS5, Whisper, ChromaDB, and media ingestion are NOT in scope.
 
@@ -17,13 +18,13 @@ Naive keyword search (file scan) is in scope. FTS5, Whisper, ChromaDB, and media
 
 ### Project Layout
 - **D-01:** Single flat `server.py` monolith — all tools in one file. No `app/` package. No subdirectories for tool categories.
-- **D-02:** Configuration via `.env` file using `python-dotenv`. Two required env vars: `VAULT_SECRET` (bearer token) and `VAULT_PATH` (absolute path to vault directory).
+- **D-02:** Configuration via `.env` file using `python-dotenv`. Required env vars: `VAULT_SECRET` (bearer token), `VAULT_PATH` (absolute path to vault directory), `OAUTH_CLIENT_ID` (see D-16), `OAUTH_REDIRECT_URI` (see D-16).
 - **D-03:** Dev command: `uvicorn server:app --reload`. PM2 wraps the same command in production.
 - **D-04:** Root files: `server.py`, `.env` (gitignored), `requirements.txt` (Phase 1 deps), `README.md`, `ecosystem.config.js`, `init_vault.py`, `setup.sh`.
 
 ### MCP + FastAPI Wiring
-- **D-05:** Use `fastapi-mcp` library to mount the MCP server onto the FastAPI app. This is a separate package from the official `mcp` SDK and handles SSE routing automatically.
-- **D-06:** Bearer auth enforced via FastAPI middleware on all routes — a single enforcement point that applies automatically to every tool call. Reads `Authorization: Bearer <token>` and compares to `VAULT_SECRET`.
+- **D-05:** Use the official `mcp` SDK (`pip install mcp`). Import `from mcp.server.fastmcp import FastMCP`. Mount via streamable-HTTP: `mcp_app = mcp.http_app(path='/mcp', transport='streamable-http')`. SSE transport is deprecated (MCP spec March 2025) and MUST NOT be used. The `fastapi-mcp` (tadata) library is NOT used — it only converts existing FastAPI routes into MCP tools and cannot register custom functions, which is the wrong fit for this project's 14 custom file-operation tools.
+- **D-06:** Bearer auth enforced via FastAPI middleware on all routes EXCEPT the OAuth endpoints (`/authorize`, `/token`) — a single enforcement point that applies automatically to every tool call. Reads `Authorization: Bearer <token>` and compares to `VAULT_SECRET`.
 - **D-07:** The vault's operational rules document is named `CLAUDE.md` (NOT `CLOUD.md` as labeled in PRD.md — user correction). Its content is injected as the MCP server's `instructions` field on startup so Claude receives it on connection.
 - **D-08:** All tool errors return a consistent dict: `{"error": true, "message": "...", "code": "NOT_FOUND"}`. Code values include at minimum: `NOT_FOUND`, `ALREADY_EXISTS`, `INVALID_PATH`, `HEADING_NOT_FOUND`, `AUTH_ERROR`. Never raise HTTPException from tool functions.
 
@@ -37,6 +38,13 @@ Naive keyword search (file scan) is in scope. FTS5, Whisper, ChromaDB, and media
 - **D-13:** Search is case-insensitive (`query.lower() in line.lower()`), scans the full file including YAML frontmatter.
 - **D-14:** Search scope: `wiki/` subdirectory only. Raw sources are excluded from the naive scan.
 - **D-15:** Snippet: 2-line window (≈150 chars) centered on the first occurrence of the query in the file. Matches the PRD's "2-line context snippets" description.
+
+### OAuth 2.0 (claude.ai mobile compatibility)
+- **D-16:** Implement OAuth 2.0 Authorization Code + PKCE (S256) endpoints in Phase 1 so the claude.ai mobile/web connector can complete a handshake. Two additional env vars are required and MUST be present in `.env` / `.env.example`:
+  - `OAUTH_CLIENT_ID` — unique identifier registered for the claude.ai connector (free-form string, validated by `/authorize` against this env value)
+  - `OAUTH_REDIRECT_URI` — callback URL the connector must use (validated by `/authorize` against this env value; matches the URL registered with the claude.ai connector UI / Cloudflare Tunnel hostname)
+  - The `/token` endpoint exchanges the PKCE-verified authorization code for an `access_token` equal to `VAULT_SECRET`. This thin OAuth wrapper exists solely to satisfy claude.ai's connector requirement; the access token is the same shared secret used by Claude Desktop's direct bearer-token path, because the system is single-user by design.
+  - `/authorize` and `/token` paths MUST bypass `BearerAuthMiddleware` (they are the auth flow itself).
 
 ### Claude's Discretion
 - Frontmatter auto-generation logic in `create_note()` — specific field inference from content (tags, related) is Claude's call as long as the template fields from PRD §3 are populated.
@@ -105,3 +113,4 @@ Naive keyword search (file scan) is in scope. FTS5, Whisper, ChromaDB, and media
 
 *Phase: 1-Core MCP Server*
 *Context gathered: 2026-05-28*
+*Revised: 2026-05-29 — D-05 corrected to official `mcp` SDK + streamable-HTTP transport; D-16 added to formalize OAuth env vars; D-02 expanded to list all four required env vars.*
