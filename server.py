@@ -536,7 +536,309 @@ async def get_index() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 10. Mount MCP streamable-HTTP transport (after routes, after middleware)
+# 10. Retrieval helper functions — internal (NOT @mcp.tool decorated)
+#     Used by read_note_section (RET-04) and other retrieval tools.
+# ---------------------------------------------------------------------------
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+
+
+def _get_sections(content: str) -> list[dict]:
+    """Parse markdown headings from content into a structured list.
+
+    Returns a list of dicts with keys:
+      - "heading": heading text (without # prefix)
+      - "level": heading level (1-6)
+      - "start_line": zero-based line index of the heading line
+    """
+    lines = content.splitlines()
+    sections: list[dict] = []
+    for i, line in enumerate(lines):
+        m = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if m:
+            sections.append({
+                "heading": m.group(2),
+                "level": len(m.group(1)),
+                "start_line": i,
+            })
+    return sections
+
+
+def _find_heading_index(sections: list[dict], target: str) -> int | None:
+    """Find the index into *sections* of the first heading matching *target*.
+
+    Match is case-insensitive and partial (substring). Returns None if not found.
+    """
+    target_lower = target.lower()
+    for i, section in enumerate(sections):
+        if target_lower in section["heading"].lower():
+            return i
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 11. Retrieval MCP tools (RET-01..RET-04)
+#     All tools return plain dicts — FastMCP serializes them as MCP tool results.
+#     All tools catch I/O errors and return the canonical error dict (D-08).
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def search_full_text(query: str, top_k: int = 5) -> dict:
+    """RET-01: Naive case-insensitive keyword search across wiki/ markdown files.
+
+    Phase 1 uses a full-file scan (rglob). Phase 2 will replace this with
+    SQLite FTS5 for performance.
+
+    Scoring: normalized occurrence count per D-12 — score = count / max_count.
+    A single result receives score 1.0. Snippet: 2-line window centered on the
+    first occurrence per D-15.
+
+    Args:
+        query:  Search term. Empty string returns {"results": []}.
+        top_k:  Maximum number of results to return (default 5).
+
+    Returns:
+        {"results": [{"path": str, "title": str, "snippet": str, "score": float}, ...]}
+        sorted by score descending. Empty list if no matches.
+    """
+    if not query or not query.strip():
+        return {"results": []}
+
+    query_lower = query.lower()
+    wiki_dir: Path = VAULT_PATH / "wiki"
+
+    if not wiki_dir.exists():
+        return {"results": []}
+
+    candidates: list[dict] = []
+
+    try:
+        for p in wiki_dir.rglob("*.md"):
+            try:
+                content = p.read_text(encoding="utf-8", errors="replace")
+            except (FileNotFoundError, PermissionError):
+                continue
+
+            content_lower = content.lower()
+            count = content_lower.count(query_lower)
+            if count == 0:
+                continue
+
+            # Find the first matching line (D-15: 2-line window)
+            lines = content.splitlines()
+            first_match_idx = -1
+            for i, line in enumerate(lines):
+                if query_lower in line.lower():
+                    first_match_idx = i
+                    break
+
+            # Build 2-line snippet centered on first occurrence
+            if first_match_idx >= 0:
+                if first_match_idx < len(lines) - 1:
+                    # Take the matching line + next line
+                    snippet_lines = lines[first_match_idx:first_match_idx + 2]
+                else:
+                    # Last line — take previous + matching
+                    start = max(0, first_match_idx - 1)
+                    snippet_lines = lines[start:first_match_idx + 1]
+                snippet = "\n".join(snippet_lines)
+                # Truncate to ~150 chars per D-15
+                if len(snippet) > 150:
+                    snippet = snippet[:150]
+            else:
+                snippet = ""
+
+            # Resolve title from frontmatter or stem
+            try:
+                post = frontmatter.load(str(p))
+                title: str = post.get("title") or p.stem
+            except Exception:
+                title = p.stem
+
+            rel = p.relative_to(VAULT_PATH).as_posix()
+            candidates.append({
+                "path": rel,
+                "title": title,
+                "snippet": snippet,
+                "_count": count,
+            })
+    except (FileNotFoundError, PermissionError) as exc:
+        return err(f"Cannot search wiki directory: {exc}", ERR_NOT_FOUND)
+
+    # Sort by count descending, take top_k
+    candidates.sort(key=lambda c: c["_count"], reverse=True)
+    candidates = candidates[:top_k]
+
+    # D-12: normalize scores — max_count becomes 1.0
+    if candidates:
+        max_count = candidates[0]["_count"]  # already sorted descending
+        results = []
+        for c in candidates:
+            results.append({
+                "path": c["path"],
+                "title": c["title"],
+                "snippet": c["snippet"],
+                "score": round(c["_count"] / max_count, 10),
+            })
+    else:
+        results = []
+
+    return {"results": results}
+
+
+@mcp.tool()
+async def get_note_summary(path: str) -> dict:
+    """RET-02: Return a token-efficient summary of a note — no full body content.
+
+    Returns the first 200 chars of the body plus the heading outline so Claude
+    can evaluate relevance before paying the full read_note token cost.
+
+    Args:
+        path: Relative vault path to a *.md file (e.g. "wiki/concepts/AI.md").
+
+    Returns:
+        {"title": str, "summary": str, "headings": list[str], "word_count": int}
+        or an error dict on invalid path, traversal, or missing file.
+    """
+    result = safe_vault_path(path)
+    if isinstance(result, dict):
+        return result
+
+    resolved: Path = result
+
+    if not resolved.exists() or not resolved.is_file() or resolved.suffix != ".md":
+        return err(f"Note not found: {path}", ERR_NOT_FOUND)
+
+    try:
+        post = frontmatter.load(str(resolved))
+    except Exception as exc:
+        return err(f"Cannot read note: {exc}", ERR_NOT_FOUND)
+
+    title: str = post.get("title") or resolved.stem
+    body: str = post.content
+
+    # PRD §5.2: first 200 chars of body
+    summary = body[:200]
+
+    headings = [s["heading"] for s in _get_sections(body)]
+    word_count = len(body.split())
+
+    return {
+        "title": title,
+        "summary": summary,
+        "headings": headings,
+        "word_count": word_count,
+    }
+
+
+@mcp.tool()
+async def read_note(path: str) -> dict:
+    """RET-03: Return full content and frontmatter of a note.
+
+    Higher token cost than get_note_summary — Claude should call
+    get_note_summary first to evaluate relevance (CLAUDE.md operational rules).
+
+    Args:
+        path: Relative vault path to a *.md file (e.g. "wiki/concepts/AI.md").
+
+    Returns:
+        {"path": str, "title": str, "frontmatter": dict, "content": str}
+        or an error dict on invalid path, traversal, or missing file.
+    """
+    result = safe_vault_path(path)
+    if isinstance(result, dict):
+        return result
+
+    resolved: Path = result
+
+    if not resolved.exists() or not resolved.is_file():
+        return err(f"Note not found: {path}", ERR_NOT_FOUND)
+
+    try:
+        post = frontmatter.load(str(resolved))
+    except Exception as exc:
+        return err(f"Cannot read note: {exc}", ERR_NOT_FOUND)
+
+    title: str = post.get("title") or resolved.stem
+    content: str = post.content
+    fm_dict = dict(post.metadata)
+
+    # Coerce datetime/date values to ISO strings for JSON serialisability
+    for key, value in fm_dict.items():
+        if hasattr(value, "isoformat"):
+            fm_dict[key] = value.isoformat()
+
+    rel = resolved.relative_to(VAULT_PATH).as_posix()
+    return {
+        "path": rel,
+        "title": title,
+        "frontmatter": fm_dict,
+        "content": content,
+    }
+
+
+@mcp.tool()
+async def read_note_section(path: str, heading: str) -> dict:
+    """RET-04: Return the content of a single named section within a note.
+
+    More token-efficient than read_note when only one section is needed.
+    Heading match is case-insensitive and partial.
+
+    Args:
+        path:    Relative vault path to a *.md file.
+        heading: Heading text to search for (partial, case-insensitive).
+
+    Returns:
+        {"path": str, "heading": str, "content": str}
+        or an error dict. HEADING_NOT_FOUND errors include available_headings list.
+    """
+    result = safe_vault_path(path)
+    if isinstance(result, dict):
+        return result
+
+    resolved: Path = result
+
+    if not resolved.exists() or not resolved.is_file():
+        return err(f"Note not found: {path}", ERR_NOT_FOUND)
+
+    try:
+        content = resolved.read_text(encoding="utf-8")
+    except Exception as exc:
+        return err(f"Cannot read note: {exc}", ERR_NOT_FOUND)
+
+    sections = _get_sections(content)
+    idx = _find_heading_index(sections, heading)
+
+    if idx is None:
+        # Return HEADING_NOT_FOUND with available_headings (CONTEXT.md Specifics, D-08)
+        error_dict = err(f"Heading not found: {heading}", ERR_HEADING_NOT_FOUND)
+        error_dict["available_headings"] = [s["heading"] for s in sections]
+        return error_dict
+
+    lines = content.splitlines()
+    section_start = sections[idx]["start_line"] + 1  # line after heading
+    section_level = sections[idx]["level"]
+
+    # Find where this section ends: next heading at same or higher level
+    section_end = len(lines)
+    for j in range(idx + 1, len(sections)):
+        if sections[j]["level"] <= section_level:
+            section_end = sections[j]["start_line"]
+            break
+
+    section_content = "\n".join(lines[section_start:section_end]).rstrip()
+    rel = resolved.relative_to(VAULT_PATH).as_posix()
+
+    return {
+        "path": rel,
+        "heading": sections[idx]["heading"],
+        "content": section_content,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 12. Mount MCP streamable-HTTP transport (after routes, after middleware)
 # ---------------------------------------------------------------------------
 
 app.mount("/mcp", mcp_app)
