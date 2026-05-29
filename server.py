@@ -24,7 +24,7 @@ import time
 from datetime import date
 from pathlib import Path
 
-import frontmatter
+import frontmatter as fm_lib
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
@@ -403,7 +403,7 @@ async def list_notes(folder: str = None) -> dict:
     try:
         for p in sorted(resolved.glob("*.md")):
             try:
-                post = frontmatter.load(str(p))
+                post = fm_lib.load(str(p))
                 title: str = post.get("title") or p.stem
             except Exception:
                 title = p.stem
@@ -454,7 +454,7 @@ async def get_note_metadata(path: str) -> dict:
         return err(f"Note not found: {path}", ERR_NOT_FOUND)
 
     try:
-        post = frontmatter.load(str(resolved))
+        post = fm_lib.load(str(resolved))
     except (FileNotFoundError, PermissionError) as exc:
         return err(f"Cannot read note: {exc}", ERR_NOT_FOUND)
     except Exception as exc:
@@ -651,7 +651,7 @@ async def search_full_text(query: str, top_k: int = 5) -> dict:
 
             # Resolve title from frontmatter or stem
             try:
-                post = frontmatter.load(str(p))
+                post = fm_lib.load(str(p))
                 title: str = post.get("title") or p.stem
             except Exception:
                 title = p.stem
@@ -711,7 +711,7 @@ async def get_note_summary(path: str) -> dict:
         return err(f"Note not found: {path}", ERR_NOT_FOUND)
 
     try:
-        post = frontmatter.load(str(resolved))
+        post = fm_lib.load(str(resolved))
     except Exception as exc:
         return err(f"Cannot read note: {exc}", ERR_NOT_FOUND)
 
@@ -756,7 +756,7 @@ async def read_note(path: str) -> dict:
         return err(f"Note not found: {path}", ERR_NOT_FOUND)
 
     try:
-        post = frontmatter.load(str(resolved))
+        post = fm_lib.load(str(resolved))
     except Exception as exc:
         return err(f"Cannot read note: {exc}", ERR_NOT_FOUND)
 
@@ -838,7 +838,270 @@ async def read_note_section(path: str, heading: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 12. Mount MCP streamable-HTTP transport (after routes, after middleware)
+# 12. Ingestion MCP tools (INGEST-01..INGEST-05)
+#     All tools call safe_vault_path() first (T-06-01).
+#     raw/ writes are NOT permitted via these tools — safe_vault_path rejects
+#     them (T-06-02). Use ingest_source (Plan 07) for raw/ writes.
+#     All tools return the canonical error dict (D-08) on failure.
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def create_note(
+    path: str,
+    content: str,
+    tags: list = [],
+    frontmatter_extra: dict = {},
+) -> dict:
+    """INGEST-01: Create a new markdown note with auto-generated YAML frontmatter.
+
+    The note is created at VAULT_PATH/path with frontmatter fields populated
+    from PRD §3 template: date (today), tags, sources (empty), related (empty),
+    summary (empty string).  Caller can override or extend via frontmatter_extra.
+
+    Args:
+        path:              Relative vault path, e.g. "wiki/concepts/python.md".
+                           Must be inside wiki/ — raw/ is rejected (T-06-01).
+        content:           Markdown body text written after the frontmatter block.
+        tags:              List of tag strings to attach to the note.
+        frontmatter_extra: Additional or override frontmatter key/value pairs.
+                           Caller-supplied keys override the template defaults.
+
+    Returns:
+        {"path": str, "created": True, "word_count": int}
+        or error dict with code ALREADY_EXISTS if the file already exists (PRD §5.3),
+        INVALID_PATH if the path is invalid or traverses outside the vault.
+    """
+    try:
+        result = safe_vault_path(path)
+        if isinstance(result, dict):
+            return result
+        p: Path = result
+
+        if p.exists():
+            return err(f"Note already exists: {path}", ERR_ALREADY_EXISTS)
+
+        # Build frontmatter from PRD §3 template, then merge caller overrides
+        fm_dict: dict = {
+            "date": date.today().isoformat(),
+            "tags": list(tags) if tags else [],
+            "sources": [],
+            "related": [],
+            "summary": "",
+        }
+        fm_dict.update(frontmatter_extra)
+
+        # Serialize using python-frontmatter
+        post = fm_lib.Post(content, **fm_dict)
+        serialized: str = fm_lib.dumps(post)
+
+        # Ensure parent directories exist
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(serialized, encoding="utf-8")
+
+        word_count = len(content.split())
+        rel = p.relative_to(VAULT_PATH).as_posix()
+        return {"path": rel, "created": True, "word_count": word_count}
+    except Exception as exc:
+        return err(str(exc), ERR_NOT_FOUND)
+
+
+@mcp.tool()
+async def append_to_note(path: str, text: str) -> dict:
+    """INGEST-02: Append text to an existing note's body.
+
+    Inserts exactly one blank line between the existing content and the new
+    text, then adds a trailing newline.
+
+    Args:
+        path: Relative vault path to an existing *.md file.
+        text: Text to append after the current body.
+
+    Returns:
+        {"path": str, "appended": True, "new_word_count": int}
+        or error dict with NOT_FOUND / INVALID_PATH.
+    """
+    try:
+        result = safe_vault_path(path)
+        if isinstance(result, dict):
+            return result
+        p: Path = result
+
+        if not p.exists():
+            return err(f"Note not found: {path}", ERR_NOT_FOUND)
+
+        existing = p.read_text(encoding="utf-8")
+        new_content = existing.rstrip("\n") + "\n\n" + text + "\n"
+        p.write_text(new_content, encoding="utf-8")
+
+        # Compute word count from body only (excludes frontmatter)
+        post = fm_lib.load(str(p))
+        new_word_count = len(post.content.split())
+
+        rel = p.relative_to(VAULT_PATH).as_posix()
+        return {"path": rel, "appended": True, "new_word_count": new_word_count}
+    except Exception as exc:
+        return err(str(exc), ERR_NOT_FOUND)
+
+
+@mcp.tool()
+async def prepend_to_note(path: str, text: str) -> dict:
+    """INGEST-03: Insert text before the existing body content, after frontmatter.
+
+    Reads the note via python-frontmatter, prepends text to the body, writes
+    back so the YAML frontmatter block is preserved unchanged.
+
+    Args:
+        path: Relative vault path to an existing *.md file.
+        text: Text to insert at the beginning of the body.
+
+    Returns:
+        {"path": str, "prepended": True, "new_word_count": int}
+        or error dict with NOT_FOUND / INVALID_PATH.
+    """
+    try:
+        result = safe_vault_path(path)
+        if isinstance(result, dict):
+            return result
+        p: Path = result
+
+        if not p.exists():
+            return err(f"Note not found: {path}", ERR_NOT_FOUND)
+
+        post = fm_lib.load(str(p))
+        new_body = text.rstrip("\n") + "\n\n" + post.content
+        post.content = new_body
+        p.write_text(fm_lib.dumps(post), encoding="utf-8")
+
+        new_word_count = len(new_body.split())
+        rel = p.relative_to(VAULT_PATH).as_posix()
+        return {"path": rel, "prepended": True, "new_word_count": new_word_count}
+    except Exception as exc:
+        return err(str(exc), ERR_NOT_FOUND)
+
+
+@mcp.tool()
+async def insert_under_heading(path: str, heading: str, text: str) -> dict:
+    """INGEST-04: Insert text at the end of a named section within a note.
+
+    Finds the first heading matching *heading* (case-insensitive partial match)
+    and appends *text* as a new paragraph just before the next same-or-higher-
+    level heading (or end-of-file).  The YAML frontmatter is preserved.
+
+    Args:
+        path:    Relative vault path to an existing *.md file.
+        heading: Heading text to locate (partial, case-insensitive).
+        text:    Text to insert at the end of the found section.
+
+    Returns:
+        {"path": str, "heading_found": True, "inserted": True, "heading": str}
+        or error dict with HEADING_NOT_FOUND + available_headings if no match,
+        NOT_FOUND / INVALID_PATH on other failures.
+    """
+    try:
+        result = safe_vault_path(path)
+        if isinstance(result, dict):
+            return result
+        p: Path = result
+
+        if not p.exists():
+            return err(f"Note not found: {path}", ERR_NOT_FOUND)
+
+        post = fm_lib.load(str(p))
+        body = post.content
+
+        sections = _get_sections(body)
+        idx = _find_heading_index(sections, heading)
+
+        if idx is None:
+            error_dict = err(
+                f"Heading not found: {heading}", ERR_HEADING_NOT_FOUND
+            )
+            error_dict["available_headings"] = [s["heading"] for s in sections]
+            return error_dict
+
+        # Find insertion point: end of the matched section (just before the
+        # next heading at same or higher level, or EOF)
+        lines = body.split("\n")
+        matched_level = sections[idx]["level"]
+
+        # Find next section with level <= matched_level (same or higher hierarchy)
+        insert_line = len(lines)
+        for j in range(idx + 1, len(sections)):
+            if sections[j]["level"] <= matched_level:
+                insert_line = sections[j]["start_line"]
+                break
+
+        # Insert as a new paragraph (blank line + text + blank line)
+        lines.insert(insert_line, "\n" + text + "\n")
+        post.content = "\n".join(lines)
+        p.write_text(fm_lib.dumps(post), encoding="utf-8")
+
+        rel = p.relative_to(VAULT_PATH).as_posix()
+        return {
+            "path": rel,
+            "heading_found": True,
+            "inserted": True,
+            "heading": sections[idx]["heading"],
+        }
+    except Exception as exc:
+        return err(str(exc), ERR_NOT_FOUND)
+
+
+@mcp.tool()
+async def update_frontmatter(path: str, key: str, value) -> dict:
+    """INGEST-05: Update a single frontmatter key without modifying the body.
+
+    Loads the note, updates (or adds) the specified key in the YAML frontmatter,
+    then writes back via python-frontmatter so the body content is untouched.
+
+    Args:
+        path:  Relative vault path to an existing *.md file.
+        key:   Frontmatter key to set (created or overwritten).
+        value: New value for the key.  Must be JSON-serializable.
+
+    Returns:
+        {"path": str, "key": str, "old_value": any, "new_value": any}
+        old_value is None if the key did not previously exist.
+        date/datetime old/new values are coerced to ISO strings.
+        Error dict with NOT_FOUND / INVALID_PATH on failure.
+    """
+    try:
+        result = safe_vault_path(path)
+        if isinstance(result, dict):
+            return result
+        p: Path = result
+
+        if not p.exists():
+            return err(f"Note not found: {path}", ERR_NOT_FOUND)
+
+        post = fm_lib.load(str(p))
+        old_value = post.metadata.get(key)
+
+        # Coerce date/datetime to ISO string for JSON serialisability
+        if hasattr(old_value, "isoformat"):
+            old_value = old_value.isoformat()
+
+        new_val = value
+        if hasattr(new_val, "isoformat"):
+            new_val = new_val.isoformat()
+
+        post[key] = value
+        p.write_text(fm_lib.dumps(post), encoding="utf-8")
+
+        rel = p.relative_to(VAULT_PATH).as_posix()
+        return {
+            "path": rel,
+            "key": key,
+            "old_value": old_value,
+            "new_value": new_val,
+        }
+    except Exception as exc:
+        return err(str(exc), ERR_NOT_FOUND)
+
+
+# ---------------------------------------------------------------------------
+# 13. Mount MCP streamable-HTTP transport (after routes, after middleware)
 # ---------------------------------------------------------------------------
 
 app.mount("/mcp", mcp_app)
