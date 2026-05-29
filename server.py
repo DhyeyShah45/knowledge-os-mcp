@@ -18,9 +18,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import re
 import secrets
 import time
+from datetime import date
 from pathlib import Path
+
+import frontmatter
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
@@ -330,7 +334,209 @@ async def token(
 
 
 # ---------------------------------------------------------------------------
-# 9. Mount MCP streamable-HTTP transport (after routes, after middleware)
+# 9. Navigation MCP tools (NAV-01..NAV-04)
+#    All tools return plain dicts — FastMCP serializes them as MCP tool results.
+#    All tools catch I/O errors and return the canonical error dict (D-08).
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_folders() -> dict:
+    """NAV-01: Return every folder under wiki/ with its direct-child note count.
+
+    Walks the wiki/ subdirectory of VAULT_PATH.  For each directory (including
+    wiki/ itself), counts direct-child *.md files (non-recursive).  Hidden
+    directories (names starting with '.') are skipped.
+
+    Returns:
+        {"folders": [{"path": "wiki/entities", "note_count": 12}, ...]}
+        sorted by path, or {"folders": []} if wiki/ does not exist.
+    """
+    wiki_dir: Path = VAULT_PATH / "wiki"
+    if not wiki_dir.exists():
+        return {"folders": []}
+
+    folders: list[dict] = []
+    try:
+        for dirpath, dirnames, filenames in os.walk(wiki_dir):
+            # Skip hidden directories in-place so os.walk prunes them too
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+
+            current = Path(dirpath)
+            note_count = sum(1 for f in filenames if f.endswith(".md"))
+            rel = current.relative_to(VAULT_PATH).as_posix()
+            folders.append({"path": rel, "note_count": note_count})
+    except (FileNotFoundError, PermissionError) as exc:
+        return err(f"Cannot read wiki directory: {exc}", ERR_NOT_FOUND)
+
+    folders.sort(key=lambda x: x["path"])
+    return {"folders": folders}
+
+
+@mcp.tool()
+async def list_notes(folder: str = None) -> dict:
+    """NAV-02: List direct-child *.md files in a vault folder.
+
+    Args:
+        folder: Relative path inside the vault (e.g. "wiki/entities").
+                Defaults to "wiki" when None or omitted.
+
+    Returns:
+        {"notes": [{"path": "wiki/entities/karpathy.md",
+                    "title": "Andrej Karpathy",
+                    "last_modified": "2026-05-29"}, ...]}
+        sorted by path.  Returns an error dict on invalid or missing folder.
+    """
+    if folder is None:
+        folder = "wiki"
+
+    result = safe_vault_path(folder)
+    if isinstance(result, dict):
+        return result
+
+    resolved: Path = result
+
+    if not resolved.is_dir():
+        return err(f"Not a directory: {folder}", ERR_NOT_FOUND)
+
+    notes: list[dict] = []
+    try:
+        for p in sorted(resolved.glob("*.md")):
+            try:
+                post = frontmatter.load(str(p))
+                title: str = post.get("title") or p.stem
+            except Exception:
+                title = p.stem
+
+            try:
+                last_modified: str = date.fromtimestamp(p.stat().st_mtime).isoformat()
+            except (OSError, OverflowError, ValueError):
+                last_modified = ""
+
+            rel_path = p.relative_to(VAULT_PATH).as_posix()
+            notes.append({"path": rel_path, "title": title, "last_modified": last_modified})
+    except (FileNotFoundError, PermissionError) as exc:
+        return err(f"Cannot list notes in {folder}: {exc}", ERR_NOT_FOUND)
+
+    return {"notes": notes}
+
+
+@mcp.tool()
+async def get_note_metadata(path: str) -> dict:
+    """NAV-03: Return frontmatter fields and stats for a note — no body content.
+
+    Validates the path, loads the note with python-frontmatter, and returns
+    structured metadata so Claude can decide whether to read the full note
+    without paying the token cost of fetching the body.
+
+    Args:
+        path: Relative vault path to a *.md file (e.g. "wiki/concepts/AI.md").
+
+    Returns:
+        {
+          "title": str,
+          "date": str (ISO-8601 or ""),
+          "tags": list[str],
+          "sources": list[str],
+          "related": list[str],
+          "word_count": int,
+          "last_modified": str (YYYY-MM-DD),
+        }
+        or an error dict on invalid path, traversal, or missing file.
+    """
+    result = safe_vault_path(path)
+    if isinstance(result, dict):
+        return result
+
+    resolved: Path = result
+
+    if not resolved.exists() or not resolved.is_file() or resolved.suffix != ".md":
+        return err(f"Note not found: {path}", ERR_NOT_FOUND)
+
+    try:
+        post = frontmatter.load(str(resolved))
+    except (FileNotFoundError, PermissionError) as exc:
+        return err(f"Cannot read note: {exc}", ERR_NOT_FOUND)
+    except Exception as exc:
+        return err(f"Failed to parse note: {exc}", ERR_NOT_FOUND)
+
+    # Coerce date field to ISO string regardless of whether python-frontmatter
+    # parsed it as a datetime.date / datetime.datetime object or a raw string.
+    raw_date = post.get("date", "")
+    if hasattr(raw_date, "isoformat"):
+        date_str: str = raw_date.isoformat()
+    else:
+        date_str = str(raw_date) if raw_date else ""
+
+    try:
+        last_modified: str = date.fromtimestamp(resolved.stat().st_mtime).isoformat()
+    except (OSError, OverflowError, ValueError):
+        last_modified = ""
+
+    return {
+        "title": post.get("title", resolved.stem),
+        "date": date_str,
+        "tags": post.get("tags", []),
+        "sources": post.get("sources", []),
+        "related": post.get("related", []),
+        "word_count": len(post.content.split()),
+        "last_modified": last_modified,
+    }
+
+
+@mcp.tool()
+async def get_index() -> dict:
+    """NAV-04: Return the full content of wiki/index.md plus parsed header stats.
+
+    The index is the primary navigation entry point — Claude is instructed to
+    call get_index() before any other navigation tool per CLAUDE.md rules.
+
+    Returns:
+        {
+          "content": str (full file text),
+          "total_pages": int,
+          "total_sources": int,
+          "last_updated": str (YYYY-MM-DD or ""),
+        }
+        or an error dict if wiki/index.md does not exist.
+    """
+    index_path: Path = VAULT_PATH / "wiki" / "index.md"
+
+    if not index_path.exists():
+        return err("Index not found — has init_vault.py run?", ERR_NOT_FOUND)
+
+    try:
+        content: str = index_path.read_text(encoding="utf-8")
+    except (FileNotFoundError, PermissionError) as exc:
+        return err(f"Cannot read index: {exc}", ERR_NOT_FOUND)
+
+    # Parse the header line (line 2) for structured stats.
+    # Expected format: "Last updated: YYYY-MM-DD | Total pages: N | Total sources: N"
+    _HEADER_RE = re.compile(
+        r"Last updated:\s*(\S+)\s*\|\s*Total pages:\s*(\d+)\s*\|\s*Total sources:\s*(\d+)"
+    )
+    last_updated: str = ""
+    total_pages: int = 0
+    total_sources: int = 0
+
+    for line in content.splitlines():
+        m = _HEADER_RE.search(line)
+        if m:
+            last_updated = m.group(1)
+            total_pages = int(m.group(2))
+            total_sources = int(m.group(3))
+            break
+
+    return {
+        "content": content,
+        "total_pages": total_pages,
+        "total_sources": total_sources,
+        "last_updated": last_updated,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 10. Mount MCP streamable-HTTP transport (after routes, after middleware)
 # ---------------------------------------------------------------------------
 
 app.mount("/mcp", mcp_app)
