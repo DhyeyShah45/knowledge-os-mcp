@@ -1101,7 +1101,208 @@ async def update_frontmatter(path: str, key: str, value) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 13. Mount MCP streamable-HTTP transport (after routes, after middleware)
+# 13. Maintenance MCP tools (MAINT-01..MAINT-02)
+#     update_index — upsert entry in wiki/index.md under named section (MAINT-01)
+#     append_log   — prepend timestamped block in wiki/log.md (MAINT-02)
+# ---------------------------------------------------------------------------
+
+_VALID_CATEGORIES: frozenset[str] = frozenset({"entities", "concepts", "sources", "queries"})
+_VALID_OPERATIONS: frozenset[str] = frozenset({"ingest", "query", "lint", "update"})
+
+# Regex that matches any "- [[...]]" list entry inside an index section
+_ENTRY_RE = re.compile(r"^- \[\[.+?\]\]")
+
+# Regex for the totals header line
+_TOTALS_RE = re.compile(
+    r"(Last updated:\s*)(\S+)(\s*\|\s*Total pages:\s*)(\d+)(\s*\|\s*Total sources:\s*)(\d+)"
+)
+
+
+@mcp.tool()
+async def update_index(path: str, summary: str, category: str) -> dict:
+    """MAINT-01: Upsert an entry in wiki/index.md under the named category section.
+
+    Strips a trailing .md from path to form an Obsidian wikilink.  If an entry
+    for the same path already exists in the section it is replaced in-place (upsert).
+    After writing the entry the header line totals are refreshed so get_index()
+    always returns accurate counts.
+
+    Args:
+        path:     Relative vault path of the note to reference (e.g. "wiki/concepts/foo.md").
+        summary:  Short human-readable description for the index entry.
+        category: Section to target — one of {entities, concepts, sources, queries}.
+
+    Returns:
+        {"updated": True, "entry": "<the line written>"}
+        or an error dict with INVALID_PATH / NOT_FOUND.
+    """
+    try:
+        # --- Validate category (T-07-01) ---
+        if category not in _VALID_CATEGORIES:
+            return err(f"Invalid category: {category}", ERR_INVALID_PATH)
+
+        # --- Validate path stays within vault (path need not exist yet) ---
+        resolved = safe_vault_path(path)
+        if isinstance(resolved, dict):
+            return resolved
+
+        # --- Build the wikilink key (strip trailing .md per Obsidian convention) ---
+        path_without_md = path[:-3] if path.endswith(".md") else path
+        entry = f"- [[{path_without_md}]] — {summary}"
+
+        # --- Read index.md ---
+        index_path: Path = VAULT_PATH / "wiki" / "index.md"
+        if not index_path.exists():
+            return err("Index not found — has init_vault.py run?", ERR_NOT_FOUND)
+
+        content: str = index_path.read_text(encoding="utf-8")
+        lines: list[str] = content.splitlines(keepends=True)
+
+        # Section heading map
+        section_heading = (
+            f"## {category.capitalize()}"
+            if category != "queries"
+            else "## Queries"
+        )
+        # Exact heading per PRD §3
+        _SECTION_MAP: dict[str, str] = {
+            "entities": "## Entities",
+            "concepts": "## Concepts",
+            "sources": "## Sources",
+            "queries": "## Queries",
+        }
+        section_heading = _SECTION_MAP[category]
+
+        # --- Locate the target section heading ---
+        section_start: int | None = None
+        for i, line in enumerate(lines):
+            if line.rstrip("\r\n") == section_heading:
+                section_start = i
+                break
+
+        if section_start is None:
+            # Section heading not present in index — insert it before EOF
+            # and then insert the entry on the next line
+            lines.append(f"{section_heading}\n")
+            lines.append(f"{entry}\n")
+        else:
+            # Scan section body for an existing entry with the same wikilink key
+            existing_key = f"- [[{path_without_md}]]"
+            section_end = len(lines)
+            for i in range(section_start + 1, len(lines)):
+                stripped = lines[i].rstrip("\r\n")
+                if stripped.startswith("## ") and i != section_start:
+                    section_end = i
+                    break
+
+            replaced = False
+            for i in range(section_start + 1, section_end):
+                if lines[i].startswith(existing_key):
+                    lines[i] = entry + "\n"
+                    replaced = True
+                    break
+
+            if not replaced:
+                # Insert new entry just before section_end
+                lines.insert(section_end, entry + "\n")
+
+        # --- Refresh header line totals ---
+        new_content = "".join(lines)
+        all_lines = new_content.splitlines()
+
+        # Count total "- [[...]]" entries across all sections
+        total_pages = sum(1 for ln in all_lines if _ENTRY_RE.match(ln))
+
+        # Count entries in Sources section only
+        in_sources = False
+        total_sources = 0
+        for ln in all_lines:
+            stripped = ln.strip()
+            if stripped == "## Sources":
+                in_sources = True
+                continue
+            if in_sources:
+                if stripped.startswith("## "):
+                    in_sources = False
+                elif _ENTRY_RE.match(stripped):
+                    total_sources += 1
+
+        today = date.today().isoformat()
+
+        # Replace the header stats line
+        updated_lines: list[str] = []
+        for ln in all_lines:
+            m = _TOTALS_RE.search(ln)
+            if m:
+                ln = f"Last updated: {today} | Total pages: {total_pages} | Total sources: {total_sources}"
+            updated_lines.append(ln)
+
+        final_content = "\n".join(updated_lines)
+        # Preserve trailing newline if original had one
+        if new_content.endswith("\n"):
+            final_content += "\n"
+
+        index_path.write_text(final_content, encoding="utf-8")
+
+        return {"updated": True, "entry": entry}
+    except Exception as exc:
+        return err(str(exc), ERR_NOT_FOUND)
+
+
+@mcp.tool()
+async def append_log(operation: str, title: str, notes: str = "") -> dict:
+    """MAINT-02: Prepend a timestamped entry to wiki/log.md (newest-first per PRD §3).
+
+    The entry is inserted immediately below the "# Vault Log" header line so
+    the most recent operation is always at the top of the log.
+
+    Args:
+        operation: One of {ingest, query, lint, update} (T-07-02).
+        title:     Short description of the operation subject.
+        notes:     Optional multi-line details appended after the heading line.
+
+    Returns:
+        {"appended": True, "entry": "<the block written>"}
+        or an error dict with NOT_FOUND / INVALID_PATH.
+    """
+    try:
+        # --- Validate operation (T-07-02) ---
+        if operation not in _VALID_OPERATIONS:
+            return err(f"Invalid operation: {operation}", ERR_INVALID_PATH)
+
+        # --- Read log.md ---
+        log_path: Path = VAULT_PATH / "wiki" / "log.md"
+        if not log_path.exists():
+            return err("Log not found — has init_vault.py run?", ERR_NOT_FOUND)
+
+        content: str = log_path.read_text(encoding="utf-8")
+
+        # --- Build entry block (PRD §3 format) ---
+        today = date.today().isoformat()
+        entry_block = f"## [{today}] {operation} | {title}\n{notes}\n\n"
+
+        # --- Prepend below "# Vault Log" header ---
+        lines = content.splitlines(keepends=True)
+        if lines and lines[0].rstrip("\r\n") == "# Vault Log":
+            # Consume any blank lines immediately after the header
+            header_end = 1
+            while header_end < len(lines) and lines[header_end].strip() == "":
+                header_end += 1
+            body_lines = lines[header_end:]
+            new_content = "# Vault Log\n\n" + entry_block + "".join(body_lines)
+        else:
+            # Header not in expected format — prepend unconditionally
+            new_content = entry_block + content
+
+        log_path.write_text(new_content, encoding="utf-8")
+
+        return {"appended": True, "entry": entry_block}
+    except Exception as exc:
+        return err(str(exc), ERR_NOT_FOUND)
+
+
+# ---------------------------------------------------------------------------
+# 14. Mount MCP streamable-HTTP transport (after routes, after middleware)
 # ---------------------------------------------------------------------------
 
 app.mount("/mcp", mcp_app)
