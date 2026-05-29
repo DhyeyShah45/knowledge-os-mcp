@@ -8,11 +8,11 @@
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: FastAPI server serves MCP tools over streamable-HTTP transport on port 8000
-- [ ] **INFRA-02**: All endpoints require bearer token authentication via VAULT_SECRET env var
+- [x] **INFRA-01**: FastAPI server serves MCP tools over streamable-HTTP transport on port 8000
+- [x] **INFRA-02**: All endpoints require bearer token authentication via VAULT_SECRET env var
 - [ ] **INFRA-03**: Cloudflare Tunnel exposes the server at a persistent custom subdomain
 - [ ] **INFRA-04**: Server process is managed via PM2 with auto-restart on failure
-- [ ] **INFRA-05**: CLOUD.md operational rules are embedded as the MCP system prompt for Claude
+- [x] **INFRA-05**: CLOUD.md operational rules are embedded as the MCP system prompt for Claude
 
 ### Navigation
 
@@ -94,11 +94,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
+| INFRA-01 | Phase 1 | Complete |
+| INFRA-02 | Phase 1 | Complete |
 | INFRA-03 | Phase 1 | Pending |
 | INFRA-04 | Phase 1 | Pending |
-| INFRA-05 | Phase 1 | Pending |
+| INFRA-05 | Phase 1 | Complete |
 | NAV-01 | Phase 1 | Pending |
 | NAV-02 | Phase 1 | Pending |
 | NAV-03 | Phase 1 | Pending |

@@ -30,9 +30,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Server process survives a restart (PM2 auto-restarts it) and the CLAUDE.md rules are injected as the MCP system prompt
 **Plans**: 7 plans
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffold: requirements.txt, .env.example, .gitignore, init_vault.py, CLAUDE.md, setup.sh, ecosystem.config.js, README.md (+ package legitimacy checkpoint)
-- [ ] 01-02-PLAN.md — Test harness: pyproject.toml pytest config + tests/conftest.py with tmp_vault fixture + smoke test
-- [ ] 01-03-PLAN.md — Server bootstrap: server.py with FastMCP + streamable-HTTP + BearerAuthMiddleware + OAuth 2.0 PKCE endpoints + path/error helpers + auth/oauth/infra tests
+- [x] 01-01-PLAN.md — Project scaffold: requirements.txt, .env.example, .gitignore, init_vault.py, CLAUDE.md, setup.sh, ecosystem.config.js, README.md (+ package legitimacy checkpoint)
+- [x] 01-02-PLAN.md — Test harness: pyproject.toml pytest config + tests/conftest.py with tmp_vault fixture + smoke test
+- [x] 01-03-PLAN.md — Server bootstrap: server.py with FastMCP + streamable-HTTP + BearerAuthMiddleware + OAuth 2.0 PKCE endpoints + path/error helpers + auth/oauth/infra tests
 - [ ] 01-04-PLAN.md — Navigation tools: list_folders, list_notes, get_note_metadata, get_index + tests
 - [ ] 01-05-PLAN.md — Retrieval tools: search_full_text (naive scan), get_note_summary, read_note, read_note_section + tests
 - [ ] 01-06-PLAN.md — Ingestion tools: create_note, append_to_note, prepend_to_note, insert_under_heading, update_frontmatter + tests
@@ -82,6 +82,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core MCP Server | 0/7 | Not started | - |
+| 1. Core MCP Server | 3/7 | In Progress|  |
 | 2. Media Ingestion + Full-Text Search | 0/TBD | Not started | - |
 | 3. Semantic Search + Token Efficiency | 0/TBD | Not started | - |
