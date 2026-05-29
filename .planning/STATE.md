@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 1 context gathered
-last_updated: "2026-05-29T02:24:26.764Z"
+last_updated: "2026-05-29T02:33:31.595Z"
 last_activity: 2026-05-29
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 7
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-28)
 ## Current Position
 
 Phase: 1 of 3 (Core MCP Server)
-Plan: 1 of 7 in current phase
+Plan: 2 of 7 in current phase
 Status: Ready to execute
 Last activity: 2026-05-29
 
-Progress: [████░░░░░░] 43%
+Progress: [██████░░░░] 57%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [████░░░░░░] 43%
 
 *Updated after each plan completion*
 | Phase 01-core-mcp-server P03 | 25m | 2 tasks | 4 files |
+| Phase 01-core-mcp-server P04 | 20m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,9 @@ Recent decisions affecting current work:
 - SSE transport over WebSocket — simpler server implementation; MCP SDK supports SSE natively
 - SQLite FTS5 before ChromaDB — zero deps, handles 95% of queries; Phase 2 delivers this before semantic search
 - Naive file scan in Phase 1 — FTS5 is Phase 2; Phase 1 scan is functional for small vaults during initial setup
+- [Phase ?]: NAV scope
+- [Phase ?]: NAV-03 design
+- [Phase ?]: NAV-04 design
 
 ### Pending Todos
 
@@ -83,6 +87,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-29T02:24:26.756Z
+Last session: 2026-05-29T02:33:31.587Z
 Stopped at: Phase 1 context gathered
 Resume file: None

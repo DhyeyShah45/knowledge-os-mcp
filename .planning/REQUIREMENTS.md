@@ -16,10 +16,10 @@
 
 ### Navigation
 
-- [ ] **NAV-01**: Claude can retrieve the full vault folder tree with note counts via list_folders()
-- [ ] **NAV-02**: Claude can list notes in any folder with paths, titles, and last_modified via list_notes()
-- [ ] **NAV-03**: Claude can read note frontmatter and stats without reading body content via get_note_metadata()
-- [ ] **NAV-04**: Claude can read wiki/index.md (the master catalog) as the primary navigation entry point via get_index()
+- [x] **NAV-01**: Claude can retrieve the full vault folder tree with note counts via list_folders()
+- [x] **NAV-02**: Claude can list notes in any folder with paths, titles, and last_modified via list_notes()
+- [x] **NAV-03**: Claude can read note frontmatter and stats without reading body content via get_note_metadata()
+- [x] **NAV-04**: Claude can read wiki/index.md (the master catalog) as the primary navigation entry point via get_index()
 
 ### Retrieval
 
@@ -99,10 +99,10 @@
 | INFRA-03 | Phase 1 | Pending |
 | INFRA-04 | Phase 1 | Pending |
 | INFRA-05 | Phase 1 | Complete |
-| NAV-01 | Phase 1 | Pending |
-| NAV-02 | Phase 1 | Pending |
-| NAV-03 | Phase 1 | Pending |
-| NAV-04 | Phase 1 | Pending |
+| NAV-01 | Phase 1 | Complete |
+| NAV-02 | Phase 1 | Complete |
+| NAV-03 | Phase 1 | Complete |
+| NAV-04 | Phase 1 | Complete |
 | RET-01 | Phase 1 | Pending |
 | RET-02 | Phase 1 | Pending |
 | RET-03 | Phase 1 | Pending |
