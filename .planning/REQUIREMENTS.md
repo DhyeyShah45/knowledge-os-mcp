@@ -23,10 +23,10 @@
 
 ### Retrieval
 
-- [ ] **RET-01**: Claude can search all vault markdown files by keyword via search_full_text(), returning snippets and scores
-- [ ] **RET-02**: Claude can get a note summary (first 200 chars + heading outline) before committing to a full read via get_note_summary()
-- [ ] **RET-03**: Claude can read the full content of a note via read_note()
-- [ ] **RET-04**: Claude can read only a specific heading section of a note via read_note_section()
+- [x] **RET-01**: Claude can search all vault markdown files by keyword via search_full_text(), returning snippets and scores
+- [x] **RET-02**: Claude can get a note summary (first 200 chars + heading outline) before committing to a full read via get_note_summary()
+- [x] **RET-03**: Claude can read the full content of a note via read_note()
+- [x] **RET-04**: Claude can read only a specific heading section of a note via read_note_section()
 
 ### Ingestion
 
@@ -103,10 +103,10 @@
 | NAV-02 | Phase 1 | Complete |
 | NAV-03 | Phase 1 | Complete |
 | NAV-04 | Phase 1 | Complete |
-| RET-01 | Phase 1 | Pending |
-| RET-02 | Phase 1 | Pending |
-| RET-03 | Phase 1 | Pending |
-| RET-04 | Phase 1 | Pending |
+| RET-01 | Phase 1 | Complete |
+| RET-02 | Phase 1 | Complete |
+| RET-03 | Phase 1 | Complete |
+| RET-04 | Phase 1 | Complete |
 | INGEST-01 | Phase 1 | Pending |
 | INGEST-02 | Phase 1 | Pending |
 | INGEST-03 | Phase 1 | Pending |
