@@ -30,11 +30,11 @@
 
 ### Ingestion
 
-- [ ] **INGEST-01**: Claude can create a new markdown note with auto-generated frontmatter via create_note()
-- [ ] **INGEST-02**: Claude can safely append text to an existing note via append_to_note()
-- [ ] **INGEST-03**: Claude can prepend text after frontmatter (for newest-first log entries) via prepend_to_note()
-- [ ] **INGEST-04**: Claude can insert text under a specific heading in a note via insert_under_heading()
-- [ ] **INGEST-05**: Claude can update a single frontmatter key without touching the note body via update_frontmatter()
+- [x] **INGEST-01**: Claude can create a new markdown note with auto-generated frontmatter via create_note()
+- [x] **INGEST-02**: Claude can safely append text to an existing note via append_to_note()
+- [x] **INGEST-03**: Claude can prepend text after frontmatter (for newest-first log entries) via prepend_to_note()
+- [x] **INGEST-04**: Claude can insert text under a specific heading in a note via insert_under_heading()
+- [x] **INGEST-05**: Claude can update a single frontmatter key without touching the note body via update_frontmatter()
 
 ### Maintenance
 
@@ -107,11 +107,11 @@
 | RET-02 | Phase 1 | Complete |
 | RET-03 | Phase 1 | Complete |
 | RET-04 | Phase 1 | Complete |
-| INGEST-01 | Phase 1 | Pending |
-| INGEST-02 | Phase 1 | Pending |
-| INGEST-03 | Phase 1 | Pending |
-| INGEST-04 | Phase 1 | Pending |
-| INGEST-05 | Phase 1 | Pending |
+| INGEST-01 | Phase 1 | Complete |
+| INGEST-02 | Phase 1 | Complete |
+| INGEST-03 | Phase 1 | Complete |
+| INGEST-04 | Phase 1 | Complete |
+| INGEST-05 | Phase 1 | Complete |
 | MAINT-01 | Phase 1 | Pending |
 | MAINT-02 | Phase 1 | Pending |
 | MEDIA-01 | Phase 2 | Pending |
