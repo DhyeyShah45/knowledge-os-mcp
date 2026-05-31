@@ -1320,3 +1320,13 @@ async def append_log(operation: str, title: str, notes: str = "") -> dict:
 # ---------------------------------------------------------------------------
 
 app.mount("/mcp", mcp_starlette)
+
+# ---------------------------------------------------------------------------
+# 15. stdio entry point — used by Claude Desktop (mcpServers stdio config)
+#     Running `python server.py` directly bypasses FastAPI/HTTP entirely and
+#     serves all 15 tools over stdin/stdout for local desktop integration.
+#     Remote access (Cloudflare tunnel) still uses uvicorn + HTTP above.
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
