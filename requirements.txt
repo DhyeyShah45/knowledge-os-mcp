@@ -7,10 +7,10 @@ uvicorn[standard]==0.30.0
 python-dotenv==1.2.2
 pydantic==2.7.0
 
-# MCP SDK — official Anthropic MCP Python SDK
+# MCP SDK — official Anthropic MCP Python SDK (FastMCP introduced in 1.0)
 # Import as: from mcp.server.fastmcp import FastMCP
 # Note: use 'mcp' (Anthropic), not the unrelated tadata package
-mcp
+mcp>=1.0.0
 
 # File handling
 python-frontmatter==1.1.0
