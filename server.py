@@ -149,6 +149,12 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in OAUTH_BYPASS_PATHS:
             return await call_next(request)
 
+        # Localhost connections are inherently secure — Claude Desktop on the
+        # same machine doesn't support custom headers in its MCP config.
+        client_host = request.client.host if request.client else ""
+        if client_host in ("127.0.0.1", "::1"):
+            return await call_next(request)
+
         auth_header: str = request.headers.get("Authorization", "")
 
         # Reject missing or malformed Authorization header
