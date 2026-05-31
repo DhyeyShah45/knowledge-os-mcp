@@ -56,7 +56,7 @@ _instructions_text: str = (
 
 # Initialize the MCP server with vault instructions so Claude receives the
 # operational rules on every connection.
-mcp: FastMCP = FastMCP("vault-mcp", instructions=_instructions_text)
+mcp: FastMCP = FastMCP("vault-mcp", instructions=_instructions_text, streamable_http_path="/")
 
 # ---------------------------------------------------------------------------
 # 3. Error dict builder — public surface used by Plans 04-07 (D-08)
