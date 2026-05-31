@@ -6,9 +6,9 @@ and wiki/log.md with correct initial content, and copies CLAUDE.md from the proj
 root into the vault root.
 
 Usage:
-    # Source your .env first (or export VAULT_PATH manually)
-    source .env  # or: export VAULT_PATH=/path/to/new/vault
-    python init_vault.py
+    python init_vault.py   # reads .env automatically if present
+    # or with an explicit override:
+    VAULT_PATH=/path/to/new/vault python init_vault.py
 
 IMPORTANT: VAULT_PATH must point to a directory that does NOT yet exist.
 This script will fail immediately if the directory already exists (exist_ok=False),
@@ -19,6 +19,13 @@ from pathlib import Path
 from datetime import date
 import os
 import shutil
+
+# Load .env file if present so the script works without manually sourcing it
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed yet; fall back to environment variables
 
 
 # ---------------------------------------------------------------------------
