@@ -205,7 +205,7 @@ app.add_middleware(BearerAuthMiddleware)
 _pkce_codes: dict[str, dict] = {}
 
 
-@app.get("/authorize")
+@app.get("/authorize", response_model=None)
 async def authorize(request: Request) -> RedirectResponse | JSONResponse:
     """OAuth 2.0 Authorization Code endpoint with PKCE (RFC 7636).
 
@@ -264,7 +264,7 @@ async def authorize(request: Request) -> RedirectResponse | JSONResponse:
     return RedirectResponse(url=redirect_url, status_code=302)
 
 
-@app.post("/token")
+@app.post("/token", response_model=None)
 async def token(
     grant_type: str = Form(...),
     code: str = Form(...),
