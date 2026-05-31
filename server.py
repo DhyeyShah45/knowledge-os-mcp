@@ -8,7 +8,7 @@ Startup sequence:
   5. Mount MCP streamable-HTTP transport at /mcp (INFRA-01, D-05)
   6. Register /authorize and /token OAuth 2.0 PKCE endpoints (D-16)
 
-Transport: streamable-HTTP via mcp.http_app(path='/mcp', transport='streamable-http')
+Transport: streamable-HTTP via mcp.streamable_http_app() mounted at /mcp
 Auth: Bearer token (VAULT_SECRET env var) + OAuth 2.0 PKCE wrapper for claude.ai mobile
 CLAUDE.md: read at startup, not on every request (performance + resilience)
 """
@@ -16,6 +16,7 @@ CLAUDE.md: read at startup, not on every request (performance + resilience)
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import os
 import re
@@ -172,17 +173,24 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
 # ---------------------------------------------------------------------------
 # 7. MCP ASGI app — streamable-HTTP transport (INFRA-01, D-05)
-#    ONLY the documented form is used: mcp.http_app(path, transport)
-#    No speculative API names, no try/except fallback chains.
+#    streamable_http_app() initialises the session manager; we wire its
+#    lifespan into FastAPI so the manager starts/stops with the process.
 # ---------------------------------------------------------------------------
 
-mcp_app = mcp.http_app(path="/mcp", transport="streamable-http")
+mcp_starlette = mcp.streamable_http_app()
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(fastapi_app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
 
 # ---------------------------------------------------------------------------
-# 8. FastAPI application — lifespan must come from mcp_app (RESEARCH Pitfall 2)
+# 8. FastAPI application
 # ---------------------------------------------------------------------------
 
-app: FastAPI = FastAPI(lifespan=mcp_app.lifespan)
+app: FastAPI = FastAPI(lifespan=_lifespan)
 
 # Middleware is added BEFORE routes and mount so it applies to all requests.
 app.add_middleware(BearerAuthMiddleware)
@@ -1305,4 +1313,4 @@ async def append_log(operation: str, title: str, notes: str = "") -> dict:
 # 14. Mount MCP streamable-HTTP transport (after routes, after middleware)
 # ---------------------------------------------------------------------------
 
-app.mount("/mcp", mcp_app)
+app.mount("/mcp", mcp_starlette)
