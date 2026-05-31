@@ -89,10 +89,10 @@ The pattern is derived from the LLM Wiki architecture: raw sources are immutable
 
 - Language: Python 3.11+
 - Framework: FastAPI
-- Transport: SSE (Server-Sent Events) over HTTP
+- Transport: Streamable HTTP (MCP spec) mounted at `/mcp`
 - Port: 8000 (local), exposed via Cloudflare Tunnel
-- Auth: Bearer token (env var `VAULT_SECRET`)
-- Process manager: PM2 or systemd
+- Auth: Bearer token (`VAULT_SECRET`) + OAuth 2.0 PKCE for claude.ai remote
+- Process manager: launchd (macOS) via `~/Library/LaunchAgents/` plist
 
 The server exposes tools as MCP-compatible endpoints. Claude connects to it as a custom MCP server via the SSE URL.
 
@@ -101,8 +101,8 @@ The server exposes tools as MCP-compatible endpoints. Claude connects to it as a
 - Persistent subdomain (no URL rotation)
 - Zero port-forwarding required
 - Free tier sufficient
-- Runs as a system service (`cloudflared tunnel run`)
-- Config: `~/.cloudflared/config.yml`
+- Installed as a native launchd service via `sudo cloudflared service install <token>`
+- Token-based setup — no `config.yml` required when using the dashboard flow
 
 #### 2.3 Obsidian Vault
 
@@ -896,16 +896,17 @@ sudo dpkg -i cloudflared.deb
 
 ### 6.5 Process Management
 
-```bash
-# PM2 (recommended for development)
-npm install -g pm2
+Both processes run as native macOS launchd services — no Node.js or PM2 required.
 
-# Start both processes
-pm2 start "python server.py" --name vault-mcp
-pm2 start "cloudflared tunnel run vault" --name cloudflare-tunnel
-pm2 save
-pm2 startup   # auto-start on boot
-```
+**uvicorn (MCP server):**
+- Managed via `~/Library/LaunchAgents/com.cyrque.knowledge-os-mcp.plist`
+- Started by `start-server.sh` which sources `.env` at runtime
+- `launchctl load ~/Library/LaunchAgents/com.cyrque.knowledge-os-mcp.plist`
+
+**Cloudflare Tunnel:**
+- Installed as a system service: `sudo cloudflared service install <token>`
+- Managed by launchd at `/Library/LaunchDaemons/com.cloudflare.cloudflared.plist`
+- Survives reboots automatically
 
 ---
 
