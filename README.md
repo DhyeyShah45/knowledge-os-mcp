@@ -157,11 +157,17 @@ Add to your Claude Desktop `claude_desktop_config.json` (located at `~/Library/A
   "mcpServers": {
     "vault": {
       "command": "/path/to/knowledge-os-mcp/.venv/bin/python",
-      "args": ["/path/to/knowledge-os-mcp/server.py"]
+      "args": ["/path/to/knowledge-os-mcp/server.py"],
+      "env": {
+        "VAULT_PATH": "/path/to/your/obsidian-vault",
+        "VAULT_SECRET": "your-secret-here"
+      }
     }
   }
 }
 ```
+
+The `env` block is required. Claude Desktop launches the server as a subprocess and the working directory is not guaranteed to be the project folder, so `load_dotenv()` may not find `.env` automatically. Only `VAULT_PATH` and `VAULT_SECRET` are needed here — the OAuth vars are only used by the Cloudflare/remote path.
 
 This uses the stdio transport (the `__main__` block in `server.py`). No bearer token configuration is needed.
 
