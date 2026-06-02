@@ -107,7 +107,7 @@ def main() -> None:
     print(f"\nVault initialized successfully at: {VAULT_PATH}")
     print("Next steps:")
     print("  1. Populate .env with VAULT_SECRET, OAUTH_CLIENT_ID, OAUTH_REDIRECT_URI")
-    print("  2. Run `pm2 start ecosystem.config.js` to start the server")
+    print("  2. Run `bash start-server.sh` to start the server")
 
 
 if __name__ == "__main__":
