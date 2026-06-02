@@ -24,12 +24,14 @@ import secrets
 import time
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlparse
 
 import frontmatter as fm_lib
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, RedirectResponse
 
@@ -45,6 +47,11 @@ VAULT_SECRET: str = os.environ["VAULT_SECRET"]
 OAUTH_CLIENT_ID: str = os.environ["OAUTH_CLIENT_ID"]
 OAUTH_REDIRECT_URI: str = os.environ["OAUTH_REDIRECT_URI"]
 
+# Public base URL derived from redirect URI — used in OAuth metadata responses.
+_parsed_redirect = urlparse(OAUTH_REDIRECT_URI)
+BASE_URL: str = f"{_parsed_redirect.scheme}://{_parsed_redirect.netloc}"
+_PUBLIC_HOST: str = _parsed_redirect.netloc  # e.g. "knowledge-os-mcp.cyrque.com"
+
 # ---------------------------------------------------------------------------
 # 2. Read CLAUDE.md operational rules → MCP instructions (INFRA-05, D-07)
 # ---------------------------------------------------------------------------
@@ -56,7 +63,27 @@ _instructions_text: str = (
 
 # Initialize the MCP server with vault instructions so Claude receives the
 # operational rules on every connection.
-mcp: FastMCP = FastMCP("vault-mcp", instructions=_instructions_text, streamable_http_path="/")
+mcp: FastMCP = FastMCP(
+    "vault-mcp",
+    instructions=_instructions_text,
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            "127.0.0.1:*",
+            "localhost:*",
+            "[::1]:*",
+            _PUBLIC_HOST,
+        ],
+        allowed_origins=[
+            "http://127.0.0.1:*",
+            "http://localhost:*",
+            "http://[::1]:*",
+            f"https://{_PUBLIC_HOST}",
+            "https://claude.ai",
+        ],
+    ),
+)
 
 # ---------------------------------------------------------------------------
 # 3. Error dict builder — public surface used by Plans 04-07 (D-08)
@@ -128,7 +155,12 @@ def safe_vault_path(rel: str) -> Path | dict:
 # 5. OAuth bypass paths — shared source of truth for middleware + routes (D-16)
 # ---------------------------------------------------------------------------
 
-OAUTH_BYPASS_PATHS: set[str] = {"/authorize", "/token"}
+OAUTH_BYPASS_PATHS: set[str] = {
+    "/authorize",
+    "/token",
+    "/register",
+    "/.well-known/oauth-authorization-server",
+}
 
 # ---------------------------------------------------------------------------
 # 6. Bearer auth middleware (INFRA-02, D-06, T-03-01, T-03-07)
@@ -145,8 +177,8 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
-        # OAuth endpoints bypass auth — they ARE the auth flow
-        if request.url.path in OAUTH_BYPASS_PATHS:
+        # OAuth endpoints and discovery paths bypass auth entirely.
+        if request.url.path in OAUTH_BYPASS_PATHS or request.url.path.startswith("/.well-known/"):
             return await call_next(request)
 
         # Localhost connections are inherently secure — Claude Desktop on the
@@ -210,6 +242,73 @@ app.add_middleware(BearerAuthMiddleware)
 # T-03-09: unbounded growth is accepted as a v1 tradeoff (single-user system).
 _pkce_codes: dict[str, dict] = {}
 
+# In-memory store for dynamically registered OAuth clients (RFC 7591).
+# Keyed by client_id → {"redirect_uris": [...]}
+_registered_clients: dict[str, dict] = {}
+
+
+@app.get("/.well-known/oauth-authorization-server")
+async def oauth_metadata() -> JSONResponse:
+    """OAuth 2.0 Authorization Server Metadata (RFC 8414).
+
+    Required by MCP clients to discover the authorization and token endpoints
+    before initiating the OAuth flow.
+    """
+    return JSONResponse({
+        "issuer": BASE_URL,
+        "authorization_endpoint": f"{BASE_URL}/authorize",
+        "token_endpoint": f"{BASE_URL}/token",
+        "registration_endpoint": f"{BASE_URL}/register",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+    })
+
+
+@app.get("/.well-known/oauth-protected-resource")
+@app.get("/.well-known/oauth-protected-resource/{path:path}")
+async def oauth_protected_resource() -> JSONResponse:
+    """OAuth 2.0 Protected Resource Metadata (RFC 9728).
+
+    Claude.ai fetches this before the authorization server metadata to discover
+    which authorization server protects this resource.
+    """
+    return JSONResponse({
+        "resource": BASE_URL,
+        "authorization_servers": [BASE_URL],
+        "bearer_methods_supported": ["header"],
+    })
+
+
+@app.post("/register")
+async def register_client(request: Request) -> JSONResponse:
+    """OAuth 2.0 Dynamic Client Registration (RFC 7591).
+
+    Claude.ai calls this before initiating the auth flow to register itself as
+    an OAuth client.  For this single-user server we accept any registration and
+    echo back a fixed client_id so the subsequent /authorize call passes.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    redirect_uris: list[str] = body.get("redirect_uris", [OAUTH_REDIRECT_URI])
+
+    _registered_clients[OAUTH_CLIENT_ID] = {"redirect_uris": redirect_uris}
+
+    return JSONResponse(
+        {
+            "client_id": OAUTH_CLIENT_ID,
+            "redirect_uris": redirect_uris,
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+        },
+        status_code=201,
+    )
+
 
 @app.get("/authorize", response_model=None)
 async def authorize(request: Request) -> RedirectResponse | JSONResponse:
@@ -234,8 +333,14 @@ async def authorize(request: Request) -> RedirectResponse | JSONResponse:
             content=err("invalid client_id", ERR_AUTH),
         )
 
-    # Validate redirect_uri — must match registered value exactly
-    if params.get("redirect_uri") != OAUTH_REDIRECT_URI:
+    # Validate redirect_uri against dynamically registered URIs (RFC 7591) or the
+    # static env-var fallback for clients that skip registration.
+    incoming_redirect = params.get("redirect_uri", "")
+    registered = _registered_clients.get(params.get("client_id", ""))
+    allowed_uris: list[str] = (
+        registered["redirect_uris"] if registered else [OAUTH_REDIRECT_URI]
+    )
+    if incoming_redirect not in allowed_uris:
         return JSONResponse(
             status_code=400,
             content=err("invalid redirect_uri", ERR_AUTH),
@@ -260,13 +365,13 @@ async def authorize(request: Request) -> RedirectResponse | JSONResponse:
     _pkce_codes[code] = {
         "challenge": code_challenge,
         "client_id": params["client_id"],
-        "redirect_uri": params["redirect_uri"],
+        "redirect_uri": incoming_redirect,
         "used": False,
         "issued_at": time.time(),
     }
 
     state = params.get("state", "")
-    redirect_url = f"{params['redirect_uri']}?code={code}&state={state}"
+    redirect_url = f"{incoming_redirect}?code={code}&state={state}"
     return RedirectResponse(url=redirect_url, status_code=302)
 
 

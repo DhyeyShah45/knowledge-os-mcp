@@ -150,7 +150,7 @@ tail -f ~/Library/Logs/knowledge-os-mcp.log
 
 No Cloudflare setup needed. The server runs on `http://localhost:8000` and the bearer auth middleware automatically skips authentication for localhost connections.
 
-Add to your Claude Desktop `claude_desktop_config.json`:
+Add to your Claude Desktop `claude_desktop_config.json` (located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
