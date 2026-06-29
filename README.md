@@ -2,6 +2,26 @@
 
 A personal, persistent knowledge base built on Obsidian — maintained by Claude, accessible from any device. A FastAPI MCP server runs on your laptop and exposes your Obsidian vault to Claude over a secure HTTPS connection via Cloudflare Tunnel. Claude handles all bookkeeping (filing, indexing, cross-referencing). You handle curation and intent.
 
+## Why I built this
+
+I wanted a second brain that my AI assistant could actually read.
+
+Most note-taking systems are write-only — you put things in but 
+retrieving the right context at the right time is manual work. 
+I wanted Claude to have access to my ongoing decisions, project 
+notes, and accumulated thinking without me copy-pasting into 
+every conversation.
+
+So I built an MCP server that sits on top of my Obsidian vault — 
+Claude connects to it directly and pulls relevant context on demand. 
+It's now the backbone of how I run Cyrque's internal documentation 
+and manage personal knowledge across devices.
+
+The interesting engineering problems: OAuth 2.0 PKCE flow for 
+remote clients, bearer auth middleware that skips localhost, 
+and keeping the vault structure opinionated enough that Claude 
+always knows where to file things.
+
 **Phase 1 scope:** Full vault read/write over MCP. Keyword search, note navigation, ingestion, and maintenance tools. No media ingestion or semantic search yet (Phase 2/3).
 
 ---
